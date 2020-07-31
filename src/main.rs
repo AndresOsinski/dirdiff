@@ -1,10 +1,13 @@
 use std::env;
+use std::fs::File;
 use std::io;
+use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::time::SystemTime;
 
-use walkdir::WalkDir;
+use sha1::{Digest, Sha1};
+use walkdir::{DirEntry, WalkDir};
 
 
 struct Doc {
@@ -19,6 +22,14 @@ fn help() {
 path - The directory path in which to track file changes");
 }
 
+
+fn is_hidden(entry: &DirEntry) -> bool {
+    entry.file_name()
+         .to_str()
+         .map(|s| s.starts_with("."))
+         .unwrap_or(false)
+}
+
 fn gen_dir_struct(path: &String) -> io::Result<()> {
     let path = Path::new(path);
     println!("Getting files from directory {}", &path.display());
@@ -28,8 +39,16 @@ fn gen_dir_struct(path: &String) -> io::Result<()> {
         exit(1);
     }
 
-    for entry in WalkDir::new(path) {
+    for entry in WalkDir::new(path).into_iter().filter_entry(|e| !is_hidden(e)) {
+        let mut data = Vec::new();
+
+        let mut fd = File::open(&entry?.path()).unwrap();
+
+        fd.read_to_end(&mut data)?;
+
+        let hash = Sha1::digest(&data);
         println!("{}", entry?.path().display());
+        println!("{:?}", hash.as_slice());
     }
 
     Ok(())
