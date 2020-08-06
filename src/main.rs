@@ -144,7 +144,9 @@ fn load_to_local_sqlite(conn: &mut Connection, entries: Vec<Doc>) -> SqlResult<(
         let mut stmt = conn.prepare("INSERT INTO dir_entries (hash, name, path, mod_date) VALUES (?1, ?2, ?3, ?4)").unwrap();
 
         for entry in entries {
-            let start_epoch = entry.mod_date.duration_since(UNIX_EPOCH).expect("Date oopsie").as_secs();
+            let start_epoch = entry.mod_date
+                .duration_since(UNIX_EPOCH).expect("Date oopsie")
+                .as_secs();
             stmt.execute(&[entry.hash, entry.name, entry.path, start_epoch.to_string()]).unwrap();
         }
     }
@@ -152,20 +154,92 @@ fn load_to_local_sqlite(conn: &mut Connection, entries: Vec<Doc>) -> SqlResult<(
     Ok(())
 }
 
-fn list_revisions(conn: &Connection) -> Vec<NaiveDateTime> {
-    let revisions_sql = "SELECT DISTINCT mod_date  FROM dir_entries";
+// Get revision times in milliseconds
+fn revision_millis(conn: &Connection) -> Vec<i64> {
+    let revisions_sql = "SELECT DISTINCT mod_date  FROM dir_entries ORDER BY mod_date DESC";
     let stmt = &mut conn.prepare(revisions_sql).expect("Oopsie when getting revision dates");
-    let revisions = stmt.query_map(params![], |row| {
+
+    stmt.query_map(params![], |row| {
         let val: i64 = row.get(0).unwrap();
         Ok(val)
-    }).unwrap().filter_map(Result::ok).map(|e| NaiveDateTime::from_timestamp(e, 0)).collect::<Vec<NaiveDateTime>>();
+    }).unwrap().map(|e| e.unwrap()).collect()
+}
+
+fn list_revisions(rev_millis: Vec<i64>) -> Vec<NaiveDateTime> {
+    let revisions = rev_millis.iter()
+        .map(|e| NaiveDateTime::from_timestamp(*e, 0))
+        .collect::<Vec<NaiveDateTime>>();
     println!("Found the following revision dates: {:?}", revisions);
 
     revisions
 }
 
+fn setup_working_table(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &mut Connection) -> SqlResult<usize> {
+    conn.execute("CREATE TABLE working_entries (
+        id  INTEGER PRIMARY KEY,
+        hash TEXT NOT NULL,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        mod_date INTEGER)", params![])
+}
+
+// Files which do not exist in revision and do not match any of the previous criteria?
+fn missing_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> () {
+}
+
+// No equivalent hash, doesn't match as a changed, moved or renamed file
+fn new_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> () {
+}
+
+// Same name and path, different hash
+fn changed_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> () {
+}
+
+// Same hash, different path
+fn moved_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> () {
+}
+
+// Same hash and path, different name
+fn renamed_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> () {
+
+}
+
+fn load_working_table(latest_millis: u64, previous_millis: u64, conn: &Connection) -> SqlResult<usize> {
+    let load_sql = "INSERT INTO working_entries (id, hash, name, path, mod_date) 
+    SELECT id, hash, name, path, mod_date
+    FROM dir_entries
+    WHERE mod_date IN (?1, ?2)";
+
+    conn.execute(load_sql, params![latest_millis, previous_millis])
+}
+
+fn remove_unchanged_from_working_table(previous_millis: u64, conn: &mut Connection) -> SqlResult<usize> {
+    let unchanged_sql = "DELETE FROM working_entries WHERE id IN (
+        SELECT id from working_entries w1 INNER JOIN working_entries w2 ON
+        (w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.name = w2.name AND w1.path = w2.path)
+        WHERE mod_date = ?1";
+    conn.execute(unchanged_sql, params![previous_millis])
+    
+}
+
+fn print_docs(docs: Vec<Doc>) -> () {
+    for doc in docs {
+        println!("{}, {}, {}", doc.name, doc.path, doc.hash);
+    }
+}
+
 fn compare_local(conn: &Connection) -> () {
-    list_revisions(&conn);
+    let revision_millis = revision_millis(conn);
+    let revisions = list_revisions(revision_millis);
+    let latest_revision = revisions[0];
+    let prior_revision = revisions[1];
+
+    setup_working_table().expect("Could not create working table for revision comparison");
+    load_working_table(revision_millis[0], revision_millis[1], conn).expect("Could not load directory entries to working table");
+    remove_unchanged_from_working_table(revision_millis[1], conn).expect("Could not remove unchanged directory entries from working table");
+    let renamed = renamed_files(&latest_revision, &prior_revision, conn);
+    print_docs(renamed);
+
 }
 
 fn main() -> Result<(), Box<dyn error::Error>> {
@@ -192,13 +266,13 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                     }
                 },
                 "compare_local" => {
+                    println!("Comparing latest revision with prior to check for changes.");
                     let root = &args[2];
 
                     let mut conn = make_local_sqlite();
                     let reader = create_csv_reader(root)?;
                     let entries = load_csv_entries(reader);
                     load_to_local_sqlite(&mut conn, entries)?;
-                    let revisions = list_revisions(&conn);
                     compare_local(&mut conn);
                 },
                 _ => { help(); }
