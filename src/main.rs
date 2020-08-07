@@ -14,7 +14,7 @@ extern crate serde_millis;
 use chrono::NaiveDateTime;
 use csv::{Reader, ReaderBuilder, Writer, WriterBuilder};
 use hex;
-use rusqlite::{params, Connection, Result as SqlResult};
+use rusqlite::{NO_PARAMS, params, Connection, Result as SqlResult, Row};
 use sha1::{Digest, Sha1};
 use walkdir::{DirEntry, WalkDir};
 
@@ -242,7 +242,28 @@ fn compare_local(conn: &mut Connection) -> () {
     println!("Prior revision at {}", &prior_revision);
 
     setup_working_table(&latest_revision, &prior_revision, conn).expect("Could not create working table for revision comparison");
-    load_working_table(&latest_revision, &prior_revision, conn).expect("Could not load directory entries to working table");
+    let inserted = load_working_table(&latest_revision, &prior_revision, conn).expect("Could not load directory entries to working table");
+    println!("Inserted {} records into working table", inserted);
+
+    let mut stmt = conn.prepare("SELECT * FROM working_entries").unwrap();
+    {
+        let working_entries = stmt
+            .query_map(NO_PARAMS, |row| {
+                let mut data: Vec<String> = Vec::new();
+                data.push(row.get_unwrap::<usize, i64>(0).to_string());
+                data.push(row.get_unwrap::<usize, String>(1));
+                data.push(row.get_unwrap::<usize, String>(2));
+                data.push(row.get_unwrap::<usize, String>(3));
+                Ok(data)
+            }).unwrap();
+
+        for entry in working_entries {
+            println!("{:?}", entry);
+        }
+    }
+
+    drop(stmt);
+
     remove_unchanged_from_working_table(&prior_revision, conn).expect("Could not remove unchanged directory entries from working table");
     let renamed = renamed_files(&latest_revision, &prior_revision, conn);
     println!("Renamed docs:");
