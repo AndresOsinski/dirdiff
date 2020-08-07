@@ -98,7 +98,7 @@ fn gen_dir_struct(path: &String) -> io::Result<Vec<Doc>> {
             dir_entries.push(Doc {
                 hash: hex::encode(hash),
                 name: String::from(dir_entry.file_name().to_str().unwrap()),
-                path: String::from(path.to_str().unwrap()),
+                path: String::from(path.parent().unwrap().to_str().unwrap()),
                 mod_date: mod_date
             });
 
@@ -205,7 +205,24 @@ fn moved_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connecti
 
 // Same hash and path, different name
 fn renamed_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
-    Vec::new()
+    let renamed_sql = "SELECT * 
+    FROM (
+        working_entries w1 INNER JOIN working_entries w2
+        ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.name != w2.name AND w1.path = w2.path
+        )
+    WHERE w1.mod_date = ?1 and w2.mod_date = ?2";
+    let mut stmt = conn.prepare(renamed_sql).unwrap();
+    let renamed = stmt.query_map(params![latest.timestamp(), previous.timestamp()], |row| {
+        Ok(Doc {
+            hash: row.get_unwrap(1),
+            name: row.get_unwrap(2),
+            path: row.get_unwrap(3),
+            //mod_date: NaiveDateTime::from_timestamp(row.get_unwrap::<usize, i64>(4), 0)
+            mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(4) as u64))
+        })
+    }).unwrap().map(|i| i.unwrap()).collect();
+
+    renamed
 }
 
 fn load_working_table(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> SqlResult<usize> {
@@ -232,6 +249,25 @@ fn print_docs(docs: Vec<Doc>) -> () {
     }
 }
 
+fn print_working_entries(conn: &mut Connection) -> () {
+    let mut stmt = conn.prepare("SELECT * FROM working_entries").unwrap();
+    let working_entries = stmt
+        .query_map(NO_PARAMS, |row| {
+            let doc: (i64, String, String, String, NaiveDateTime) = (
+                row.get_unwrap::<usize, i64>(0),
+                row.get_unwrap::<usize, String>(1),
+                row.get_unwrap::<usize, String>(2),
+                row.get_unwrap::<usize, String>(3),
+                NaiveDateTime::from_timestamp(row.get_unwrap::<usize, i64>(4), 0)
+            );
+            Ok(doc)
+        }).unwrap().map(|i| i.unwrap());
+
+    for entry in working_entries {
+        println!("{:?}", entry);
+    }
+}
+
 fn compare_local(conn: &mut Connection) -> () {
     let revision_millis = revision_millis(conn);
     let revisions = list_revisions(revision_millis);
@@ -245,26 +281,11 @@ fn compare_local(conn: &mut Connection) -> () {
     let inserted = load_working_table(&latest_revision, &prior_revision, conn).expect("Could not load directory entries to working table");
     println!("Inserted {} records into working table", inserted);
 
-    let mut stmt = conn.prepare("SELECT * FROM working_entries").unwrap();
-    {
-        let working_entries = stmt
-            .query_map(NO_PARAMS, |row| {
-                let mut data: Vec<String> = Vec::new();
-                data.push(row.get_unwrap::<usize, i64>(0).to_string());
-                data.push(row.get_unwrap::<usize, String>(1));
-                data.push(row.get_unwrap::<usize, String>(2));
-                data.push(row.get_unwrap::<usize, String>(3));
-                Ok(data)
-            }).unwrap();
-
-        for entry in working_entries {
-            println!("{:?}", entry);
-        }
-    }
-
-    drop(stmt);
-
     remove_unchanged_from_working_table(&prior_revision, conn).expect("Could not remove unchanged directory entries from working table");
+
+    println!("Remaining entries after removing unchanged");
+    print_working_entries(conn);
+
     let renamed = renamed_files(&latest_revision, &prior_revision, conn);
     println!("Renamed docs:");
     print_docs(renamed);
