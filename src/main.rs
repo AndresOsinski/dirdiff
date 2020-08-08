@@ -200,7 +200,34 @@ fn changed_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connec
 
 // Same hash, different path
 fn moved_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
-    Vec::new()
+    let moved_sql = "SELECT * 
+    FROM 
+        working_entries w1 INNER JOIN working_entries w2
+        ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path != w2.path AND w1.name = w2.name
+    WHERE w1.mod_date = ?1 AND w2.mod_date = ?2";
+
+    let mut stmt = conn.prepare(moved_sql).unwrap();
+    let moved = stmt.query_map(params![latest.timestamp(), previous.timestamp()], |row| {
+        Ok(Doc {
+            hash: row.get_unwrap(1),
+            name: row.get_unwrap(2),
+            path: row.get_unwrap(3),
+            //mod_date: NaiveDateTime::from_timestamp(row.get_unwrap::<usize, i64>(4), 0)
+            mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(4) as u64))
+        })
+    }).unwrap().map(|i| i.unwrap()).collect();
+
+    moved
+}
+
+fn remove_moved(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &mut Connection) -> SqlResult<usize> {
+    let moved_sql = "DELETE FROM working_entries WHERE id IN (
+        SELECT w1.id
+        FROM 
+            working_entries w1 INNER JOIN working_entries w2
+            ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path != w2.path AND w1.name = w2.name
+        WHERE w1.mod_date = ?1 AND w2.mod_date = ?2)";
+    conn.execute(moved_sql, params![latest.timestamp(), previous.timestamp()])
 }
 
 // Same hash and path, different name
@@ -223,6 +250,25 @@ fn renamed_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connec
     }).unwrap().map(|i| i.unwrap()).collect();
 
     renamed
+}
+
+fn remove_renamed(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &mut Connection) -> SqlResult<usize>{
+    // Yes, hacky
+    let renamed_sql_1 = "DELETE FROM working_entries WHERE id IN (
+        SELECT w1.id FROM (
+            working_entries w1 INNER JOIN working_entries w2
+            ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.name != w2.name AND w1.path = w2.path
+        ) WHERE w1.mod_date = ?1 and w2.mod_date = ?2
+    )";
+    conn.execute(renamed_sql_1, params![latest.timestamp(), previous.timestamp()])?;
+
+    let renamed_sql_2 = "DELETE FROM working_entries WHERE id IN (
+        SELECT w2.id FROM (
+            working_entries w1 INNER JOIN working_entries w2
+            ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.name != w2.name AND w1.path = w2.path
+        ) WHERE w1.mod_date = ?1 and w2.mod_date = ?2
+    )";
+    conn.execute(renamed_sql_2, params![latest.timestamp(), previous.timestamp()])
 }
 
 fn load_working_table(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> SqlResult<usize> {
@@ -281,14 +327,29 @@ fn compare_local(conn: &mut Connection) -> () {
     let inserted = load_working_table(&latest_revision, &prior_revision, conn).expect("Could not load directory entries to working table");
     println!("Inserted {} records into working table", inserted);
 
+    println!("Initial working records");
+    print_working_entries(conn);
+
     remove_unchanged_from_working_table(&prior_revision, conn).expect("Could not remove unchanged directory entries from working table");
 
     println!("Remaining entries after removing unchanged");
     print_working_entries(conn);
 
     let renamed = renamed_files(&latest_revision, &prior_revision, conn);
+    remove_renamed(&latest_revision, &prior_revision, conn).expect("Could not remove renamed entries from working table");
     println!("Renamed docs:");
     print_docs(renamed);
+
+    println!("Remaining after removing renamed");
+    print_working_entries(conn);
+
+    let moved = moved_files(&latest_revision, &prior_revision, conn);
+    println!("Moved files");
+    print_docs(moved);
+
+    remove_moved(&latest_revision, &prior_revision, conn);
+    println!("Remaining after moved");
+    print_working_entries(conn);
 
 }
 
