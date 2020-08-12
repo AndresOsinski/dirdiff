@@ -45,9 +45,31 @@ pub fn missing_files(latest: &NaiveDateTime, previous: &NaiveDateTime,
     missing
 }
 
+// Files that exist in the latest revision but do not exist in the previous working items
+pub fn added_files(latest: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
+    let added_sql = "SELECT w2.hash, w2.name, w2.path, w2.mod_date
+    FROM
+    working_entries w1 LEFT JOIN working_entries w2
+    ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path = w2.path AND w1.name = w2.name
+    WHERE w1.mod_date IS NULL and w2.mod_date = ?1";
+
+    let mut stmt = conn.prepare(added_sql).unwrap();
+    let added = stmt.query_map(params![latest.timestamp()], |row| {
+        Ok(Doc {
+            hash: row.get_unwrap(0),
+            name: row.get_unwrap(1),
+            path: row.get_unwrap(2),
+            //mod_date: NaiveDateTime::from_timestamp(row.get_unwrap::<usize, i64>(4), 0)
+            mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(3) as u64))
+        })
+    }).unwrap().map(|i| i.unwrap()).collect();
+
+    added
+}
+
 // Same hash, different path
 pub fn moved_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
-    let moved_sql = "SELECT *
+    let moved_sql = "SELECT w1.hash, w1.name, w1.path, w1.mod_date
     FROM
         working_entries w1 INNER JOIN working_entries w2
         ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path != w2.path AND w1.name = w2.name
@@ -56,11 +78,11 @@ pub fn moved_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Conn
     let mut stmt = conn.prepare(moved_sql).unwrap();
     let moved = stmt.query_map(params![latest.timestamp(), previous.timestamp()], |row| {
         Ok(Doc {
-            hash: row.get_unwrap(1),
-            name: row.get_unwrap(2),
-            path: row.get_unwrap(3),
+            hash: row.get_unwrap(0),
+            name: row.get_unwrap(1),
+            path: row.get_unwrap(2),
             //mod_date: NaiveDateTime::from_timestamp(row.get_unwrap::<usize, i64>(4), 0)
-            mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(4) as u64))
+            mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(3) as u64))
         })
     }).unwrap().map(|i| i.unwrap()).collect();
 

@@ -107,6 +107,9 @@ fn compare_local(conn: &mut Connection) -> () {
     println!("Missing files");
     print_docs(missing);
 
+    let added = added_files(&latest_revision, conn);
+    println!("Added files");
+    print_docs(added);
 }
 
 fn main() -> Result<(), Box<dyn error::Error>> {
