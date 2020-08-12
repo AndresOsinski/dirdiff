@@ -59,7 +59,6 @@ pub fn added_files(latest: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
             hash: row.get_unwrap(0),
             name: row.get_unwrap(1),
             path: row.get_unwrap(2),
-            //mod_date: NaiveDateTime::from_timestamp(row.get_unwrap::<usize, i64>(4), 0)
             mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(3) as u64))
         })
     }).unwrap().map(|i| i.unwrap()).collect();
