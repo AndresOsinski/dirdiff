@@ -73,8 +73,10 @@ fn compare_local(conn: &mut Connection) -> () {
     println!("Latest revision at {}", &latest_revision);
     println!("Prior revision at {}", &prior_revision);
 
-    setup_working_tables(&latest_revision, &prior_revision, conn).expect("Could not create working table for revision comparison");
-    let inserted = load_working_table(&latest_revision, &prior_revision, conn).expect("Could not load directory entries to working table");
+    setup_working_tables(&latest_revision, &prior_revision, conn)
+        .expect("Could not create working table for revision comparison");
+    let inserted = load_working_table(&latest_revision, &prior_revision, conn)
+        .expect("Could not load directory entries to working table");
     println!("Inserted {} records into working table", inserted);
 
     println!("Initial working records");

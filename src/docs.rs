@@ -1,4 +1,3 @@
-#[macro_use]
 use serde::{Deserialize, Serialize};
 use std::time::{UNIX_EPOCH, Duration, SystemTime};
 

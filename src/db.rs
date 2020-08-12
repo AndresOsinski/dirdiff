@@ -47,10 +47,10 @@ pub fn missing_files(latest: &NaiveDateTime, previous: &NaiveDateTime,
 // Same hash, different path
 pub fn moved_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
     let moved_sql = "SELECT *
-FROM
-    working_entries w1 INNER JOIN working_entries w2
-    ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path != w2.path AND w1.name = w2.name
-WHERE w1.mod_date = ?1 AND w2.mod_date = ?2";
+    FROM
+        working_entries w1 INNER JOIN working_entries w2
+        ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path != w2.path AND w1.name = w2.name
+    WHERE w1.mod_date = ?1 AND w2.mod_date = ?2";
 
     let mut stmt = conn.prepare(moved_sql).unwrap();
     let moved = stmt.query_map(params![latest.timestamp(), previous.timestamp()], |row| {
@@ -76,13 +76,11 @@ pub fn remove_moved(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &mut
     conn.execute(moved_sql, params![latest.timestamp(), previous.timestamp()])?;
 
     let worked_entries_sql = "INSERT INTO touched_entries (id, hash, name, path, mod_date)
-    VALUES (
-        SELECT w1.id, w1.hash, w1.name, w1.path, w1.mod_date
-        FROM
-            working_entries w1 INNER JOIN working_entries w2
-            ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path != w2.path AND w1.name = w2.name
-        WHERE w1.mod_date = ?1 AND w2.mod_date = ?2
-)";
+    SELECT w1.id, w1.hash, w1.name, w1.path, w1.mod_date
+    FROM
+        working_entries w1 INNER JOIN working_entries w2
+        ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path != w2.path AND w1.name = w2.name
+    WHERE w1.mod_date = ?1 AND w2.mod_date = ?2";
     conn.execute(worked_entries_sql, params![previous.timestamp(), latest.timestamp()])
 
 }
@@ -90,11 +88,11 @@ pub fn remove_moved(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &mut
 // Same hash and path, different name
 pub fn renamed_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
     let renamed_sql = "SELECT *
-FROM (
-    working_entries w1 INNER JOIN working_entries w2
-    ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.name != w2.name AND w1.path = w2.path
-    )
-WHERE w1.mod_date = ?1 and w2.mod_date = ?2";
+    FROM (
+        working_entries w1 INNER JOIN working_entries w2
+        ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.name != w2.name AND w1.path = w2.path
+        )
+    WHERE w1.mod_date = ?1 and w2.mod_date = ?2";
     let mut stmt = conn.prepare(renamed_sql).unwrap();
     let renamed = stmt.query_map(params![latest.timestamp(), previous.timestamp()], |row| {
         Ok(Doc {
@@ -111,56 +109,54 @@ WHERE w1.mod_date = ?1 and w2.mod_date = ?2";
 
 pub fn remove_renamed(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &mut Connection) -> SqlResult<usize>{
     let work_renamed_sql = "
-INSERT INTO touched_entries (id, hash, name, path, mod_date ) VALUES(
-    SELECT w1.id, w1.hash, w1.name, w1.path FROM (
+    INSERT INTO touched_entries (id, hash, name, path, mod_date)
+    SELECT w1.id, w1.hash, w1.name, w1.path, w1.mod_date FROM
         working_entries w1 INNER JOIN working_entries w2
         ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.name != w2.name AND w1.path = w2.path
-    ) WHERE w1.mod_date = ?1 and w2.mod_date = ?2
-)";
-    conn.execute(work_renamed_sql, params![previous.timestamp(), latest.timestamp()])?;
+    WHERE w1.mod_date = ?1 and w2.mod_date = ?2";
+    conn.execute(work_renamed_sql, params![previous.timestamp(), latest.timestamp()])
+        .expect("Could not update touched entries");
 
     // Yes, hacky
     let renamed_sql_1 = "DELETE FROM working_entries WHERE id IN (
     SELECT w1.id FROM (
         working_entries w1 INNER JOIN working_entries w2
         ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.name != w2.name AND w1.path = w2.path
-    ) WHERE w1.mod_date = ?1 and w2.mod_date = ?2
-)";
-    conn.execute(renamed_sql_1, params![latest.timestamp(), previous.timestamp()])?;
+    ) WHERE w1.mod_date = ?1 and w2.mod_date = ?2)";
+    conn.execute(renamed_sql_1, params![latest.timestamp(), previous.timestamp()])
+        .expect("Could not delete outdated working entries");
 
     let renamed_sql_2 = "DELETE FROM working_entries WHERE id IN (
-    SELECT w2.id FROM (
+    SELECT w2.id FROM
         working_entries w1 INNER JOIN working_entries w2
         ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.name != w2.name AND w1.path = w2.path
-    ) WHERE w1.mod_date = ?1 and w2.mod_date = ?2
-)";
+    WHERE w1.mod_date = ?1 and w2.mod_date = ?2)";
     conn.execute(renamed_sql_2, params![latest.timestamp(), previous.timestamp()])
 
 }
 
 pub fn load_working_table(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> SqlResult<usize> {
     let load_sql = "INSERT INTO working_entries (id, hash, name, path, mod_date)
-SELECT id, hash, name, path, mod_date
-FROM dir_entries
-WHERE mod_date IN (?1, ?2)";
+    SELECT id, hash, name, path, mod_date
+    FROM dir_entries
+    WHERE mod_date IN (?1, ?2)";
 
     conn.execute(load_sql, params![latest.timestamp(), previous.timestamp()])
 }
 
 pub fn remove_unchanged_from_working_table(previous: &NaiveDateTime, conn: &mut Connection) -> SqlResult<usize> {
-    let insert_to_moved_sql = " INSERT INTO touched_entries (id, hash, name, path, mod_date) VALUES(
+    let insert_to_moved_sql = " INSERT INTO touched_entries (id, hash, name, path, mod_date)
     SELECT w1.id, w1.hash, w1.name, w1.path, w1.mod_date
     FROM working_entries w1 INNER JOIN working_entries w2 ON
     (w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.name = w2.name AND w1.path = w2.path)
-    WHERE w1.mod_date = ?1)";
-    conn.execute(insert_to_moved_sql, params![previous.timestamp()])?;
+    WHERE w1.mod_date = ?1";
+    conn.execute(insert_to_moved_sql, params![previous.timestamp()]).expect("Boom 1");
 
-    let unchanged_sql = "DELETE FROM working_entries WHERE id IN (
-    SELECT w1.id from working_entries w1 INNER JOIN working_entries w2 ON
-    (w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.name = w2.name AND w1.path = w2.path)
+    let unchanged_sql = "DELETE FROM working_entries WHERE id IN
+    (SELECT w1.id FROM working_entries w1 INNER JOIN working_entries w2 ON
+    w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.name = w2.name AND w1.path = w2.path
     WHERE w1.mod_date = ?1)";
-    conn.execute(unchanged_sql, params![previous.timestamp()])
-
+    Ok(conn.execute(unchanged_sql, params![previous.timestamp()]).expect("Boom 2"))
 }
 
 pub fn make_local_sqlite() -> Connection {
