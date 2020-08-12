@@ -25,10 +25,11 @@ pub fn setup_working_tables(latest: &NaiveDateTime, previous: &NaiveDateTime, co
 pub fn missing_files(latest: &NaiveDateTime, previous: &NaiveDateTime,
                  conn: &Connection) -> Vec<Doc> {
     let missing_sql = "SELECT *
-    FROM touched_entries MINUS
-    (SELECT * FROM working_entries w1 LEFT JOIN working_entries w2
+    FROM touched_entries EXCEPT
+    SELECT w1.id, w1.hash, w1.name, w1.path, w1.mod_date
+    FROM working_entries w1 LEFT JOIN working_entries w2
     ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path = w2.path AND w1.name = w2.name
-    WHERE w1.mod_date = ?1 AND w2.id IS NULL)";
+    WHERE w1.mod_date = ?1 AND w2.id IS NULL";
 
     let mut stmt = conn.prepare(missing_sql).unwrap();
     let missing = stmt.query_map(params![previous.timestamp()], |row| {
