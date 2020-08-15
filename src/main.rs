@@ -25,7 +25,6 @@ compare_local [path] - Compare current changes with the last revision
 compare [path] [remote_host] [remote_directory] - Compare and track file changes");
 }
 
-
 fn list_revisions(rev_millis: Vec<i64>) -> Vec<NaiveDateTime> {
     let revisions = rev_millis.iter()
         .map(|e| NaiveDateTime::from_timestamp(*e, 0))

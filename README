@@ -1,0 +1,9 @@
+Dirdiff is a simple directory change tracker and synchronization tool built for my own specific needs.
+
+Dirdiff allows you to create revisions of files within a directory, which you can then use to track changes across
+revisions, as well as syncing changes on remote directories through SSH, while avoiding transferring existing files
+that have just been moved.
+
+You should use dirdiff if you find yourself frequently adding and removing files across different directories which need
+syncing, while avoiding unecessary deletions. If you instead have a use case where file contents are changed frequently,
+instead use rsync.

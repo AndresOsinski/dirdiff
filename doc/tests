@@ -1,0 +1,14 @@
+Basic setup:
+
+* Create a new directory
+* Add one file A, with garbage content
+* Add one file B, with garbage content
+* Create a subdirectory "subdir"
+* Copy both files outside of this directory
+
+Tests:
+1. Test added files
+2. Test deleted files
+3. Test renamed files
+4. Test modified file
+5. Test
