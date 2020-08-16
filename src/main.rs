@@ -115,36 +115,36 @@ fn compare_local(conn: &mut Connection) -> () {
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     let args = App::new("Dirdiff")
-        .author("Andres Osinski <andres.osinski@gmail.com")
+        .author("Andres Osinski <andres.osinski@gmail.com>")
         .about("Compare local and remote directory file revisions")
-        .arg(Arg::new("v")
+        .arg(Arg::with_name("v")
             .short('v')
             .about("Verbosity"))
-        .arg(Arg::new("d")
+        .arg(Arg::with_name("d")
             .short('d')
             .about("Debug"))
         .subcommand(App::new("record")
             .about("Record local directory revision")
-            .arg(Arg::new("record_dir")
+            .arg(Arg::with_name("record_dir")
                 .about("The directory to record revision for")
                 .index(1)
                 .required(true)))
         .subcommand(App::new("compare_local")
             .about("Compare the latest directory revision with the previous one")
-            .arg(Arg::new("comp_dir")
+            .arg(Arg::with_name("comp_dir")
                 .about("The directory to compare revisions")
                 .index(1)
                 .required(true)
             ))
         .subcommand(App::new("compare_remote")
             .about("Compare the latest revisions of two different directories")
-            .arg(Arg::new("local_directory")
+            .arg(Arg::with_name("local_directory")
                 .index(1)
                 .required(true))
-            .arg(Arg::new("remote_host")
+            .arg(Arg::with_name("remote_host")
                 .index(2)
                 .required(true))
-            .arg(Arg::new("remote_directory")
+            .arg(Arg::with_name("remote_directory")
                 .index(3)
                 .required(true)))
         .get_matches();
@@ -170,7 +170,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
             println!("Comparing latest revision with prior to check for changes.");
         }
 
-        let root = Path::new(command.value_of_os("directory").unwrap());
+        let root = Path::new(command.value_of_os("comp_dir").unwrap());
 
         let mut conn = make_local_sqlite();
         let reader = create_csv_reader(root)?;
