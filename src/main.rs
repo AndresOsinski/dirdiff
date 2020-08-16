@@ -31,20 +31,9 @@ fn list_revisions(rev_millis: Vec<i64>) -> Vec<NaiveDateTime> {
     let revisions = rev_millis.iter()
         .map(|e| NaiveDateTime::from_timestamp(*e, 0))
         .collect::<Vec<NaiveDateTime>>();
-    println!("Found the following revision dates: {:?}", revisions);
-
     revisions
 }
 
-// No equivalent hash, doesn't match as a changed, moved or renamed file
-fn new_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
-    Vec::new()
-}
-
-// Same name and path, different hash
-fn changed_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
-    Vec::new()
-}
 
 fn print_working_entries(conn: &mut Connection) -> () {
     let mut stmt = conn.prepare("SELECT * FROM working_entries").unwrap();
@@ -63,11 +52,16 @@ fn print_working_entries(conn: &mut Connection) -> () {
     for entry in working_entries {
         println!("{:?}", entry);
     }
+    println!("\n");
 }
 
 fn compare_local(conn: &mut Connection, verbose: bool, debug: bool) -> () {
     let revision_millis = revision_millis(conn);
+
     let revisions = list_revisions(revision_millis);
+
+    if debug { println!("Found the following revision dates: {:?}", revisions); }
+
     let latest_revision = revisions[0];
     let prior_revision = revisions[1];
 
@@ -84,7 +78,7 @@ fn compare_local(conn: &mut Connection, verbose: bool, debug: bool) -> () {
     if  debug{
         println!("Inserted {} records into working table", inserted);
 
-        println!("Initial working records");
+        println!("Initial working records:");
         print_working_entries(conn);
     }
 
@@ -92,7 +86,7 @@ fn compare_local(conn: &mut Connection, verbose: bool, debug: bool) -> () {
         .expect("Could not remove unchanged directory entries from working table");
 
     if  debug{
-        println!("Remaining entries after removing unchanged");
+        println!("Remaining entries after removing unchanged:");
         print_working_entries(conn);
     }
 
@@ -100,43 +94,35 @@ fn compare_local(conn: &mut Connection, verbose: bool, debug: bool) -> () {
     remove_renamed(&latest_revision, &prior_revision, conn)
         .expect("Could not remove renamed entries from working table");
 
-    if verbose {
-        println!("Renamed files:");
-        print_docs(renamed);
-    }
+    println!("Renamed files:");
+    print_docs(renamed);
 
     if debug{
-        println!("Remaining after removing renamed");
+        println!("Remaining after removing renamed:");
         print_working_entries(conn);
     }
 
     let moved = moved_files(&latest_revision, &prior_revision, conn);
 
-    if verbose {
-        println!("Moved files");
-        print_docs(moved);
-    }
+    println!("Moved files:");
+    print_docs(moved);
 
     remove_moved(&latest_revision, &prior_revision, conn);
 
     if debug {
-        println!("Remaining after moved");
+        println!("Remaining after moved:");
         print_working_entries(conn);
     }
 
     let missing = missing_files(&latest_revision, &prior_revision, conn);
 
-    if verbose {
-        println!("Missing files");
-        print_docs(missing);
-    }
+    println!("Missing files:");
+    print_docs(missing);
 
     let added = added_files(&latest_revision, conn);
 
-    if verbose {
-        println!("Added files");
-        print_docs(added);
-    }
+    println!("Added files:");
+    print_docs(added);
 }
 
 fn main() -> Result<(), Box<dyn error::Error>> {
