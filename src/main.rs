@@ -65,7 +65,7 @@ fn print_working_entries(conn: &mut Connection) -> () {
     }
 }
 
-fn compare_local(conn: &mut Connection, verbose: bool) -> () {
+fn compare_local(conn: &mut Connection, verbose: bool, debug: bool) -> () {
     let revision_millis = revision_millis(conn);
     let revisions = list_revisions(revision_millis);
     let latest_revision = revisions[0];
@@ -81,29 +81,31 @@ fn compare_local(conn: &mut Connection, verbose: bool) -> () {
     let inserted = load_working_table(&latest_revision, &prior_revision, conn)
         .expect("Could not load directory entries to working table");
 
-    if verbose {
+    if  debug{
         println!("Inserted {} records into working table", inserted);
 
         println!("Initial working records");
         print_working_entries(conn);
     }
 
-    remove_unchanged_from_working_table(&prior_revision, conn).expect("Could not remove unchanged directory entries from working table");
+    remove_unchanged_from_working_table(&prior_revision, conn)
+        .expect("Could not remove unchanged directory entries from working table");
 
-    if verbose {
+    if  debug{
         println!("Remaining entries after removing unchanged");
         print_working_entries(conn);
     }
 
     let renamed = renamed_files(&latest_revision, &prior_revision, conn);
-    remove_renamed(&latest_revision, &prior_revision, conn).expect("Could not remove renamed entries from working table");
+    remove_renamed(&latest_revision, &prior_revision, conn)
+        .expect("Could not remove renamed entries from working table");
 
     if verbose {
-        println!("Renamed docs:");
+        println!("Renamed files:");
         print_docs(renamed);
     }
 
-    if verbose {
+    if debug{
         println!("Remaining after removing renamed");
         print_working_entries(conn);
     }
@@ -117,7 +119,7 @@ fn compare_local(conn: &mut Connection, verbose: bool) -> () {
 
     remove_moved(&latest_revision, &prior_revision, conn);
 
-    if verbose {
+    if debug {
         println!("Remaining after moved");
         print_working_entries(conn);
     }
@@ -174,6 +176,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         .get_matches();
 
     let verbose = args.value_of("v").is_some();
+    let debug = args.value_of("d").is_some();
 
     if let Some(record) = args.subcommand_matches("record") {
         let root = Path::new(record.value_of_os("directory").unwrap());
@@ -201,7 +204,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         let reader = create_csv_reader(root, verbose)?;
         let entries = load_csv_entries(reader, verbose);
         load_to_local_sqlite(&mut conn, entries)?;
-        compare_local(&mut conn, verbose);
+        compare_local(&mut conn, verbose, debug);
     }
 
     Ok(())
