@@ -29,7 +29,7 @@ pub fn missing_files(latest: &NaiveDateTime, previous: &NaiveDateTime,
     SELECT w1.id, w1.hash, w1.name, w1.path, w1.mod_date
     FROM working_entries w1 LEFT JOIN working_entries w2
     ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path = w2.path AND w1.name = w2.name
-    WHERE w1.mod_date = ?1 AND w2.id IS NULL";
+    WHERE w1.mod_date IS NULL AND w2.id = ?1";
 
     let mut stmt = conn.prepare(missing_sql).unwrap();
     let missing = stmt.query_map(params![previous.timestamp()], |row| {
@@ -47,11 +47,11 @@ pub fn missing_files(latest: &NaiveDateTime, previous: &NaiveDateTime,
 
 // Files that exist in the latest revision but do not exist in the previous working items
 pub fn added_files(latest: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
-    let added_sql = "SELECT w2.hash, w2.name, w2.path, w2.mod_date
+    let added_sql = "SELECT w1.hash, w1.name, w1.path, w1.mod_date
     FROM
-    working_entries w1 LEFT JOIN working_entries w2
+    working_entries w1 LEFT JOIN touched_entries w2
     ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path = w2.path AND w1.name = w2.name
-    WHERE w1.mod_date IS NULL and w2.mod_date = ?1";
+    WHERE w1.mod_date = ?1 AND w2.mod_date IS NULL";
 
     let mut stmt = conn.prepare(added_sql).unwrap();
     let added = stmt.query_map(params![latest.timestamp()], |row| {
@@ -59,7 +59,8 @@ pub fn added_files(latest: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
             hash: row.get_unwrap(0),
             name: row.get_unwrap(1),
             path: row.get_unwrap(2),
-            mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(3) as u64))
+            mod_date: UNIX_EPOCH + (Duration::from_millis
+                (row.get_unwrap::<usize, i64>(3) as u64))
         })
     }).unwrap().map(|i| i.unwrap()).collect();
 
