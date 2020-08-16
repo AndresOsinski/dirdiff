@@ -12,22 +12,25 @@ use sha1::{Digest, Sha1};
 use walkdir::{DirEntry, WalkDir};
 use std::borrow::BorrowMut;
 
-pub fn create_csv_writer(path: &Path) -> csv::Result<Writer<File>> {
+pub fn create_csv_writer(path: &Path, verbose: bool) -> csv::Result<Writer<File>> {
     let path = path.join(".dirdiff.csv");
     let file = OpenOptions::new()
         .append(true)
         .create(true)
         .open(&path)?;
-    println!("Creating CSV {}", &path.display());
+
+    if verbose { println!("Creating CSV {}", &path.display()); }
     Ok(WriterBuilder::new()
         .has_headers(false)
         .from_writer(file))
 }
 
-pub fn create_csv_reader(path: &Path) -> Result<Reader<File>, csv::Error> {
+pub fn create_csv_reader(path: &Path, verbose: bool) -> Result<Reader<File>, csv::Error> {
     let path = path.join(".dirdiff.csv");
     //let file = OpenOptions::new().open(&path)?;
-    println!("Opening CSV {}", &path.display());
+
+    if verbose { println!("Opening CSV {}", &path.display()); }
+
     ReaderBuilder::new()
         .has_headers(false)
         .from_path(path)
@@ -87,7 +90,7 @@ pub fn gen_dir_struct(path: &Path) -> io::Result<Vec<Doc>> {
     Ok(dir_entries)
 }
 
-pub fn load_csv_entries(mut reader: Reader<File>) -> Vec<Doc> {
+pub fn load_csv_entries(mut reader: Reader<File>, verbose: bool) -> Vec<Doc> {
     // reader.into_deserialize().map(|e| { let record: Doc = e.expect("Cannot parse CSV record"); record }).collect::<Vec<Doc>>()
     let mut results = Vec::new();
     for record in reader.records() {
