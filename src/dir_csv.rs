@@ -10,23 +10,24 @@ use csv::{Reader, ReaderBuilder, Writer, WriterBuilder};
 use sha1::{Digest, Sha1};
 
 use walkdir::{DirEntry, WalkDir};
+use std::borrow::BorrowMut;
 
-pub fn create_csv_writer(path: &String) -> csv::Result<Writer<File>> {
-    let path = path.to_owned() + ".dirdiff.csv";
+pub fn create_csv_writer(path: &Path) -> csv::Result<Writer<File>> {
+    let path = path.join(".dirdiff.csv");
     let file = OpenOptions::new()
         .append(true)
         .create(true)
         .open(&path)?;
-    println!("Creating CSV {}", &path);
+    println!("Creating CSV {}", &path.display());
     Ok(WriterBuilder::new()
         .has_headers(false)
         .from_writer(file))
 }
 
-pub fn create_csv_reader(path: &String) -> Result<Reader<File>, csv::Error> {
-    let path = path.to_owned() + ".dirdiff.csv";
+pub fn create_csv_reader(path: &Path) -> Result<Reader<File>, csv::Error> {
+    let path = path.join(".dirdiff.csv");
     //let file = OpenOptions::new().open(&path)?;
-    println!("Opening CSV {}", &path);
+    println!("Opening CSV {}", &path.display());
     ReaderBuilder::new()
         .has_headers(false)
         .from_path(path)
@@ -39,11 +40,10 @@ pub fn is_hidden(entry: &DirEntry) -> bool {
         .unwrap_or(false)
 }
 
-pub fn gen_dir_struct(path: &String) -> io::Result<Vec<Doc>> {
+pub fn gen_dir_struct(path: &Path) -> io::Result<Vec<Doc>> {
     let mut dir_entries = Vec::new();
 
     let mod_date = SystemTime::now();
-    let path = Path::new(path);
 
     println!("Getting files from directory {}", &path.display());
 

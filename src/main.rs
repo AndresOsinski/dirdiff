@@ -3,9 +3,11 @@ use std::error;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::io::prelude::*;
+use std::path::Path;
 use std::time::{UNIX_EPOCH, Duration, SystemTime};
 
 use chrono::NaiveDateTime;
+use clap::{Arg, App};
 use csv::{Reader, ReaderBuilder, Writer, WriterBuilder};
 use hex;
 use rusqlite::{NO_PARAMS, params, Connection, Result as SqlResult, Row};
@@ -112,43 +114,69 @@ fn compare_local(conn: &mut Connection) -> () {
 }
 
 fn main() -> Result<(), Box<dyn error::Error>> {
-    let args: Vec<String> = env::args().collect();  
+    let args = App::new("Dirdiff")
+        .author("Andres Osinski <andres.osinski@gmail.com")
+        .about("Compare local and remote directory file revisions")
+        .arg(Arg::new("v")
+            .short('v')
+            .about("Verbosity"))
+        .arg(Arg::new("d")
+            .short('d')
+            .about("Debug"))
+        .subcommand(App::new("record")
+            .about("Record local directory revision")
+            .arg(Arg::new("record_dir")
+                .about("The directory to record revision for")
+                .index(1)
+                .required(true)))
+        .subcommand(App::new("compare_local")
+            .about("Compare the latest directory revision with the previous one")
+            .arg(Arg::new("comp_dir")
+                .about("The directory to compare revisions")
+                .index(1)
+                .required(true)
+            ))
+        .subcommand(App::new("compare_remote")
+            .about("Compare the latest revisions of two different directories")
+            .arg(Arg::new("local_directory")
+                .index(1)
+                .required(true))
+            .arg(Arg::new("remote_host")
+                .index(2)
+                .required(true))
+            .arg(Arg::new("remote_directory")
+                .index(3)
+                .required(true)))
+        .get_matches();
 
-    match args.len() {
-        3 => { 
-            let command = &args[1];
+    let verbose = args.value_of("v").is_some();
 
-            match command.as_str() {
-                "record" => {
-                    let root = &args[2];
+    if let Some(record) = args.subcommand_matches("record") {
+        let root = Path::new(record.value_of_os("directory").unwrap());
 
-                    match gen_dir_struct(&root) {
-                        Err(error) => 
-                            println!("Messed up here: {}", &error),
-                        Ok(dir_entries) => {
-                            let mut writer = create_csv_writer(&root).expect("Error creating CSV writer");
-                            for entry in dir_entries {
-                                writer.serialize(entry).expect("Error writing CSV record");
-                            }
-                            writer.flush().unwrap();
-                        }
-                    }
-                },
-                "compare_local" => {
-                    println!("Comparing latest revision with prior to check for changes.");
-                    let root = &args[2];
-
-                    let mut conn = make_local_sqlite();
-                    let reader = create_csv_reader(root)?;
-                    let entries = load_csv_entries(reader);
-                    load_to_local_sqlite(&mut conn, entries)?;
-                    compare_local(&mut conn);
-                },
-                _ => { help(); }
+        match gen_dir_struct(&root) {
+            Err(error) =>
+                println!("Messed up here: {}", &error),
+            Ok(dir_entries) => {
+                let mut writer = create_csv_writer(&root).expect("Error creating CSV writer");
+                for entry in dir_entries {
+                    writer.serialize(entry).expect("Error writing CSV record");
+                }
+                writer.flush().unwrap();
             }
-
         }
-        _ => { help(); }
+    } else if let Some(command) = args.subcommand_matches("compare_local") {
+        if verbose {
+            println!("Comparing latest revision with prior to check for changes.");
+        }
+
+        let root = Path::new(command.value_of_os("directory").unwrap());
+
+        let mut conn = make_local_sqlite();
+        let reader = create_csv_reader(root)?;
+        let entries = load_csv_entries(reader);
+        load_to_local_sqlite(&mut conn, entries)?;
+        compare_local(&mut conn);
     }
 
     Ok(())

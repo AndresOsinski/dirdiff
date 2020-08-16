@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 chrono = "0.4.13"
+clap = "3.0.0-beta.1"
 csv = "1.1"
 hex = "0.4.2"
 serde = { version = "1.0", features = ["derive"] }
