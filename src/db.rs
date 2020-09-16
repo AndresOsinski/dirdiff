@@ -186,23 +186,23 @@ pub fn make_local_sqlite() -> Connection {
     Connection::open_in_memory().expect("Cannot create in-memory SQLite")
 }
 
-pub fn load_to_local_sqlite(conn: &mut Connection, entries: Vec<Doc>) -> SqlResult<()> {
-    &conn.execute("CREATE TABLE dir_entries (
+pub fn create_dir_entries_table(conn: &mut Connection) -> SqlResult<usize> {
+    conn.execute("CREATE TABLE dir_entries (
     id  INTEGER PRIMARY KEY,
     hash TEXT NOT NULL,
     name TEXT NOT NULL,
     path TEXT NOT NULL,
-    mod_date INTEGER)", params![])?;
+    mod_date INTEGER)", params![])
+}
 
-    {
-        let mut stmt = conn.prepare("INSERT INTO dir_entries (hash, name, path, mod_date) VALUES (?1, ?2, ?3, ?4)").unwrap();
+pub fn load_to_local_sqlite(conn: &mut Connection, entries: Vec<Doc>) -> SqlResult<()> {
+    let mut stmt = conn.prepare("INSERT INTO dir_entries (hash, name, path, mod_date) VALUES (?1, ?2, ?3, ?4)").unwrap();
 
-        for entry in entries {
-            let start_epoch = entry.mod_date
-                .duration_since(UNIX_EPOCH).expect("Date oopsie")
-                .as_secs();
-            stmt.execute(&[entry.hash, entry.name, entry.path, start_epoch.to_string()]).unwrap();
-        }
+    for entry in entries {
+        let start_epoch = entry.mod_date
+            .duration_since(UNIX_EPOCH).expect("Date oopsie")
+            .as_secs();
+        stmt.execute(&[entry.hash, entry.name, entry.path, start_epoch.to_string()]).unwrap();
     }
 
     Ok(())
@@ -210,7 +210,7 @@ pub fn load_to_local_sqlite(conn: &mut Connection, entries: Vec<Doc>) -> SqlResu
 
 // Get revision times in milliseconds
 pub fn revision_millis(conn: &Connection) -> Vec<i64> {
-    let revisions_sql = "SELECT DISTINCT mod_date  FROM dir_entries ORDER BY mod_date DESC";
+    let revisions_sql = "SELECT DISTINCT mod_date FROM dir_entries ORDER BY mod_date DESC";
     let stmt = &mut conn.prepare(revisions_sql).expect("Oopsie when getting revision dates");
 
     stmt.query_map(params![], |row| {
@@ -218,3 +218,38 @@ pub fn revision_millis(conn: &Connection) -> Vec<i64> {
         Ok(val)
     }).unwrap().map(|e| e.unwrap()).collect()
 }
+
+// Print entries on a DB table that looks like a dir entry
+fn _print_entry_like(table_name: &str, conn: &mut Connection) -> () {
+    let mut stmt = String::from("SELECT * FROM ");
+    stmt += table_name;
+
+    let mut stmt = conn.prepare(&stmt).unwrap();
+    let working_entries = stmt
+        .query_map(NO_PARAMS, |row| {
+            let doc: (i64, String, String, String, NaiveDateTime) = (
+                row.get_unwrap::<usize, i64>(0),
+                row.get_unwrap::<usize, String>(1),
+                row.get_unwrap::<usize, String>(2),
+                row.get_unwrap::<usize, String>(3),
+                NaiveDateTime::from_timestamp(row.get_unwrap::<usize, i64>(4), 0)
+            );
+            Ok(doc)
+        }).unwrap().map(|i| i.unwrap());
+
+    for entry in working_entries {
+        println!("{:?}", entry);
+    }
+    println!("\n");
+}
+
+pub fn print_dir_entries(conn: &mut Connection) -> () {
+    const table_name: &str = "dir_entries";
+    _print_entry_like(table_name, conn);
+}
+
+pub fn print_working_entries(conn: &mut Connection) -> () {
+    const table_name: &str = "working_entries";
+    _print_entry_like(table_name, conn);
+}
+

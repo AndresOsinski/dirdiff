@@ -90,7 +90,7 @@ pub fn gen_dir_struct(path: &Path) -> io::Result<Vec<Doc>> {
     Ok(dir_entries)
 }
 
-pub fn load_csv_entries(mut reader: Reader<File>, verbose: bool) -> Vec<Doc> {
+pub fn load_csv_entries(mut reader: Reader<File>, verbose: bool, debug: bool) -> Vec<Doc> {
     // reader.into_deserialize().map(|e| { let record: Doc = e.expect("Cannot parse CSV record"); record }).collect::<Vec<Doc>>()
     let mut results = Vec::new();
     for record in reader.records() {
@@ -104,5 +104,50 @@ pub fn load_csv_entries(mut reader: Reader<File>, verbose: bool) -> Vec<Doc> {
         results.push(record);
     }
 
+    if debug { println!("Loaded {} CSV records", results.len()); }
+
     results
 }
+
+// Same as `load_csv_entries` but only loads the last revision
+pub fn load_csv_latest_entries(mut reader: Reader<File>, verbose:bool, debug: bool) -> Vec<Doc> {
+    let mut millis: Vec<SystemTime> = Vec::new();
+    for item in reader.records() {
+        let item = item.unwrap();
+        millis.push(UNIX_EPOCH + Duration::from_millis(item[3].parse::<u64>().unwrap()));
+    }
+
+    millis.sort();
+
+    let latest_rev = *millis.last().expect("Could not get last revision date");
+
+    if debug {
+        println!("Latest revision: {:?}", latest_rev);
+    }
+
+    let mut results = Vec::new();
+    for record in reader.records() {
+        let record = record.unwrap();
+        let mod_date = UNIX_EPOCH + (
+            Duration::from_millis(
+                record[3].to_string().parse::<u64>().unwrap()));
+
+        if mod_date == latest_rev {
+            let record = Doc {
+                hash: record[0].to_string(),
+                name: record[1].to_string(),
+                path: record[2].to_string(),
+                mod_date: mod_date
+            };
+
+            results.push(record);
+        } else if verbose {
+            println!("Skipped record with mod date {:?}", UNIX_EPOCH + Duration::from_millis(record[3].parse::<u64>().unwrap()))
+        }
+    }
+
+    if debug { println!("Loaded {} CSV records", results.len()); }
+
+    results
+}
+

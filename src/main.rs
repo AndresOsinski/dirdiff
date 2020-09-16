@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::{UNIX_EPOCH, Duration, SystemTime};
 
 use chrono::NaiveDateTime;
-use clap::{Arg, App};
+use clap::{Arg, ArgMatches, App};
 use csv::{Reader, ReaderBuilder, Writer, WriterBuilder};
 use hex;
 use rusqlite::{NO_PARAMS, params, Connection, Result as SqlResult, Row};
@@ -34,29 +34,11 @@ fn list_revisions(rev_millis: Vec<i64>) -> Vec<NaiveDateTime> {
     revisions
 }
 
-
-fn print_working_entries(conn: &mut Connection) -> () {
-    let mut stmt = conn.prepare("SELECT * FROM working_entries").unwrap();
-    let working_entries = stmt
-        .query_map(NO_PARAMS, |row| {
-            let doc: (i64, String, String, String, NaiveDateTime) = (
-                row.get_unwrap::<usize, i64>(0),
-                row.get_unwrap::<usize, String>(1),
-                row.get_unwrap::<usize, String>(2),
-                row.get_unwrap::<usize, String>(3),
-                NaiveDateTime::from_timestamp(row.get_unwrap::<usize, i64>(4), 0)
-            );
-            Ok(doc)
-        }).unwrap().map(|i| i.unwrap());
-
-    for entry in working_entries {
-        println!("{:?}", entry);
-    }
-    println!("\n");
-}
-
-fn compare_local(conn: &mut Connection, verbose: bool, debug: bool) -> () {
+// Compare latest revision with prior revision of same local directory
+fn history(conn: &mut Connection, verbose: bool, debug: bool) -> () {
     let revision_millis = revision_millis(conn);
+
+    if debug { println!("Got the following revision millis from DB data: {:?}", revision_millis) ;}
 
     let revisions = list_revisions(revision_millis);
 
@@ -79,7 +61,7 @@ fn compare_local(conn: &mut Connection, verbose: bool, debug: bool) -> () {
         println!("Inserted {} records into working table", inserted);
 
         println!("Initial working records:");
-        print_working_entries(conn);
+        db::print_working_entries(conn);
     }
 
     remove_unchanged_from_working_table(&prior_revision, conn)
@@ -87,7 +69,7 @@ fn compare_local(conn: &mut Connection, verbose: bool, debug: bool) -> () {
 
     if  debug{
         println!("Remaining entries after removing unchanged:");
-        print_working_entries(conn);
+        db::print_working_entries(conn);
     }
 
     let renamed = renamed_files(&latest_revision, &prior_revision, conn);
@@ -99,7 +81,7 @@ fn compare_local(conn: &mut Connection, verbose: bool, debug: bool) -> () {
 
     if debug{
         println!("Remaining after removing renamed:");
-        print_working_entries(conn);
+        db::print_working_entries(conn);
     }
 
     let moved = moved_files(&latest_revision, &prior_revision, conn);
@@ -111,7 +93,7 @@ fn compare_local(conn: &mut Connection, verbose: bool, debug: bool) -> () {
 
     if debug {
         println!("Remaining after moved:");
-        print_working_entries(conn);
+        db::print_working_entries(conn);
     }
 
     let missing = missing_files(&latest_revision, &prior_revision, conn);
@@ -125,6 +107,59 @@ fn compare_local(conn: &mut Connection, verbose: bool, debug: bool) -> () {
     print_docs(added);
 }
 
+// Compare the latest revision of two different local directories
+fn compare_directories(conn: &mut Connection, verbose: bool, debug: bool) -> () {}
+
+const RECORD:&str = "record";
+const HISTORY:&str = "history";
+const COMPARE_LOCAL:&str = "local";
+const COMPARE_REMOTE:&str = "remote";
+
+fn setup_history(command: &ArgMatches,
+        verbose: bool, debug: bool)  -> Result<(), Box<dyn error::Error>> {
+    if verbose {
+        println!("Comparing latest revision with prior to check for changes.");
+    }
+
+    let root = Path::new(command.value_of_os("comp_dir").unwrap());
+
+    let mut conn = make_local_sqlite();
+    let reader = create_csv_reader(root, verbose)?;
+    let entries = load_csv_entries(reader, verbose, debug);
+
+    create_dir_entries_table(&mut conn)?;
+    load_to_local_sqlite(&mut conn, entries)?;
+    history(&mut conn, verbose, debug);
+
+    Ok(())
+}
+
+fn setup_compare_local(command: &ArgMatches, verbose: bool, debug: bool)
+                       -> Result<(), Box<dyn error::Error>> {
+    if verbose {
+        println!("Compare the latest revision of directories");
+    }
+
+    let first = Path::new(command.value_of_os("first").unwrap());
+    let first_reader = create_csv_reader(first, verbose)?;
+    let first_entries = load_csv_latest_entries(first_reader, verbose, debug);
+
+    let second = Path::new(command.value_of_os("second").unwrap());
+    let second_reader = create_csv_reader(second, verbose)?;
+    let second_entries = load_csv_latest_entries(second_reader, verbose, debug);
+
+    let mut conn = make_local_sqlite();
+    create_dir_entries_table(&mut conn)?;
+    load_to_local_sqlite(&mut conn, first_entries)?;
+    load_to_local_sqlite(&mut conn, second_entries)?;
+
+    if debug { db::print_dir_entries(&mut conn); }
+
+    history(&mut conn, verbose, debug);
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn error::Error>> {
     let args = App::new("Dirdiff")
         .author("Andres Osinski <andres.osinski@gmail.com>")
@@ -135,20 +170,28 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         .arg(Arg::with_name("d")
             .short('d')
             .about("Debug"))
-        .subcommand(App::new("record")
+        .subcommand(App::new(RECORD)
             .about("Record local directory revision")
-            .arg(Arg::with_name("record_dir")
+            .arg(Arg::with_name("directory")
                 .about("The directory to record revision for")
                 .index(1)
                 .required(true)))
-        .subcommand(App::new("compare_local")
+        .subcommand(App::new(HISTORY)
             .about("Compare the latest directory revision with the previous one")
             .arg(Arg::with_name("comp_dir")
                 .about("The directory to compare revisions")
                 .index(1)
                 .required(true)
             ))
-        .subcommand(App::new("compare_remote")
+        .subcommand(App::new(COMPARE_LOCAL)
+            .about("Compare two directories in this host")
+            .arg(Arg::with_name("first")
+                .index(1)
+                .required(true))
+            .arg(Arg::with_name("second")
+                .index(2)
+                .required(true)))
+        .subcommand(App::new(COMPARE_REMOTE)
             .about("Compare the latest revisions of two different directories")
             .arg(Arg::with_name("local_directory")
                 .index(1)
@@ -161,10 +204,11 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .required(true)))
         .get_matches();
 
-    let verbose = args.value_of("v").is_some();
-    let debug = args.value_of("d").is_some();
+    let verbose = args.is_present("v");
+    let debug = args.is_present("d");
+    println!("Debug: {}", debug);
 
-    if let Some(record) = args.subcommand_matches("record") {
+    if let Some(record) = args.subcommand_matches(RECORD) {
         let root = Path::new(record.value_of_os("directory").unwrap());
 
         match gen_dir_struct(&root) {
@@ -179,19 +223,14 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 writer.flush().unwrap();
             }
         }
-    } else if let Some(command) = args.subcommand_matches("compare_local") {
-        if verbose {
-            println!("Comparing latest revision with prior to check for changes.");
-        }
-
-        let root = Path::new(command.value_of_os("comp_dir").unwrap());
-
-        let mut conn = make_local_sqlite();
-        let reader = create_csv_reader(root, verbose)?;
-        let entries = load_csv_entries(reader, verbose);
-        load_to_local_sqlite(&mut conn, entries)?;
-        compare_local(&mut conn, verbose, debug);
+    } else if let Some(command) = args.subcommand_matches(HISTORY) {
+        setup_history(command, verbose, debug);
+    } else if let Some(command) = args.subcommand_matches(COMPARE_LOCAL) {
+        setup_compare_local(command, verbose, debug);
+    } else {
     }
 
     Ok(())
 }
+
+
