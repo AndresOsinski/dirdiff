@@ -20,6 +20,11 @@ use crate::dir_csv::*;
 use crate::docs::*;
 use crate::db::*;
 
+const RECORD:&str = "record";
+const HISTORY:&str = "history";
+const COMPARE_LOCAL:&str = "local";
+const COMPARE_REMOTE:&str = "remote";
+
 fn help() {
     println!("Usage: 
 record [path] - The directory path in which to track file changes
@@ -109,11 +114,6 @@ fn history(conn: &mut Connection, verbose: bool, debug: bool) -> () {
 
 // Compare the latest revision of two different local directories
 fn compare_directories(conn: &mut Connection, verbose: bool, debug: bool) -> () {}
-
-const RECORD:&str = "record";
-const HISTORY:&str = "history";
-const COMPARE_LOCAL:&str = "local";
-const COMPARE_REMOTE:&str = "remote";
 
 fn setup_history(command: &ArgMatches,
         verbose: bool, debug: bool)  -> Result<(), Box<dyn error::Error>> {

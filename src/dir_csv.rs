@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::exit;
 use std::time::{UNIX_EPOCH, Duration, SystemTime};
 
-use csv::{Reader, ReaderBuilder, Writer, WriterBuilder};
+use csv::{Position, Reader, ReaderBuilder, Writer, WriterBuilder};
 use sha1::{Digest, Sha1};
 
 use walkdir::{DirEntry, WalkDir};
@@ -122,10 +122,13 @@ pub fn load_csv_latest_entries(mut reader: Reader<File>, verbose:bool, debug: bo
     let latest_rev = *millis.last().expect("Could not get last revision date");
 
     if debug {
-        println!("Latest revision: {:?}", latest_rev);
+        println!("Latest revision: {:?}, from {} records", latest_rev, millis.len());
     }
 
     let mut results = Vec::new();
+
+    reader.seek(Position::new());
+
     for record in reader.records() {
         let record = record.unwrap();
         let mod_date = UNIX_EPOCH + (
