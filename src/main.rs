@@ -1,16 +1,9 @@
-use std::env;
 use std::error;
-use std::fs::{File, OpenOptions};
-use std::io;
-use std::io::prelude::*;
 use std::path::Path;
-use std::time::{UNIX_EPOCH, Duration, SystemTime};
 
 use chrono::NaiveDateTime;
 use clap::{Arg, ArgMatches, App};
-use csv::{Reader, ReaderBuilder, Writer, WriterBuilder};
-use hex;
-use rusqlite::{NO_PARAMS, params, Connection, Result as SqlResult, Row};
+use rusqlite::Connection;
 
 mod dir_csv;
 mod docs;
@@ -25,27 +18,19 @@ const HISTORY:&str = "history";
 const COMPARE_LOCAL:&str = "local";
 const COMPARE_REMOTE:&str = "remote";
 
-fn help() {
-    println!("Usage: 
-record [path] - The directory path in which to track file changes
-compare_local [path] - Compare current changes with the last revision
-compare [path] [remote_host] [remote_directory] - Compare and track file changes");
-}
-
-fn list_revisions(rev_millis: Vec<i64>) -> Vec<NaiveDateTime> {
-    let revisions = rev_millis.iter()
+fn timestamps_to_datetimes(rev_millis: Vec<i64>) -> Vec<NaiveDateTime> {
+    rev_millis.iter()
         .map(|e| NaiveDateTime::from_timestamp(*e, 0))
-        .collect::<Vec<NaiveDateTime>>();
-    revisions
+        .collect::<Vec<NaiveDateTime>>()
 }
 
 // Compare latest revision with prior revision of same local directory
-fn history(conn: &mut Connection, verbose: bool, debug: bool) -> () {
+fn history(conn: &mut Connection, verbose: bool, debug: bool) -> Result<(), Box<dyn error::Error>>{
     let revision_millis = revision_millis(conn);
 
     if debug { println!("Got the following revision millis from DB data: {:?}", revision_millis) ;}
 
-    let revisions = list_revisions(revision_millis);
+    let revisions = timestamps_to_datetimes(revision_millis);
 
     if debug { println!("Found the following revision dates: {:?}", revisions); }
 
@@ -57,7 +42,7 @@ fn history(conn: &mut Connection, verbose: bool, debug: bool) -> () {
         println!("Prior revision at {}", &prior_revision);
     }
 
-    setup_working_tables(&latest_revision, &prior_revision, conn)
+    setup_working_tables(conn)
         .expect("Could not create working table for revision comparison");
     let inserted = load_working_table(&latest_revision, &prior_revision, conn)
         .expect("Could not load directory entries to working table");
@@ -84,7 +69,7 @@ fn history(conn: &mut Connection, verbose: bool, debug: bool) -> () {
     remove_renamed(&latest_revision, &prior_revision, conn)
         .expect("Could not remove renamed entries from working table");
 
-    if renamed.len() > 0 {
+    if !renamed.is_empty() {
         println!("Renamed files:");
         print_docs(renamed);
     } else {
@@ -98,23 +83,23 @@ fn history(conn: &mut Connection, verbose: bool, debug: bool) -> () {
 
     let moved = moved_files(&latest_revision, &prior_revision, conn);
 
-    if moved.len() > 0 {
+    if !moved.is_empty() {
         println!("Moved files:");
         print_moved_docs(moved);
     } else {
         println!("No moved files");
     }
 
-    remove_moved(&latest_revision, &prior_revision, conn);
+    remove_moved(&latest_revision, &prior_revision, conn)?;
 
     if debug {
         println!("Remaining after moved:");
         db::print_working_entries(conn);
     }
 
-    let missing = missing_files(&latest_revision, &prior_revision, conn);
+    let missing = missing_files(&prior_revision, conn);
 
-    if missing.len() > 0 {
+    if !missing.is_empty() {
         println!("Missing files:");
         print_docs(missing);
     } else {
@@ -123,16 +108,15 @@ fn history(conn: &mut Connection, verbose: bool, debug: bool) -> () {
 
     let added = added_files(&latest_revision, conn);
 
-    if added.len() > 0 {
+    if !added.is_empty() {
         println!("Added files:");
         print_docs(added);
     } else {
         println!("No added files");
     }
-}
 
-// Compare the latest revision of two different local directories
-fn compare_directories(conn: &mut Connection, verbose: bool, debug: bool) -> () {}
+    Ok(())
+}
 
 fn setup_history(command: &ArgMatches,
         verbose: bool, debug: bool)  -> Result<(), Box<dyn error::Error>> {
@@ -148,7 +132,7 @@ fn setup_history(command: &ArgMatches,
 
     create_dir_entries_table(&mut conn)?;
     load_to_local_sqlite(&mut conn, entries)?;
-    history(&mut conn, verbose, debug);
+    history(&mut conn, verbose, debug)?;
 
     Ok(())
 }
@@ -161,11 +145,11 @@ fn setup_compare_local(command: &ArgMatches, verbose: bool, debug: bool)
 
     let first = Path::new(command.value_of_os("first").unwrap());
     let first_reader = create_csv_reader(first, verbose)?;
-    let first_entries = load_csv_latest_entries(first_reader, verbose, debug);
+    let first_entries = load_csv_latest_entries(first_reader, verbose, debug)?;
 
     let second = Path::new(command.value_of_os("second").unwrap());
     let second_reader = create_csv_reader(second, verbose)?;
-    let second_entries = load_csv_latest_entries(second_reader, verbose, debug);
+    let second_entries = load_csv_latest_entries(second_reader, verbose, debug)?;
 
     let mut conn = make_local_sqlite();
     create_dir_entries_table(&mut conn)?;
@@ -174,7 +158,7 @@ fn setup_compare_local(command: &ArgMatches, verbose: bool, debug: bool)
 
     if debug { db::print_dir_entries(&mut conn); }
 
-    history(&mut conn, verbose, debug);
+    history(&mut conn, verbose, debug)?;
 
     Ok(())
 }
@@ -242,9 +226,9 @@ fn main() -> Result<(), Box<dyn error::Error>> {
             }
         }
     } else if let Some(command) = args.subcommand_matches(HISTORY) {
-        setup_history(command, verbose, debug);
+        setup_history(command, verbose, debug)?;
     } else if let Some(command) = args.subcommand_matches(COMPARE_LOCAL) {
-        setup_compare_local(command, verbose, debug);
+        setup_compare_local(command, verbose, debug)?;
     } else {
     }
 

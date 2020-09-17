@@ -1,11 +1,11 @@
-use std::time::{UNIX_EPOCH, Duration, SystemTime};
+use std::time::{UNIX_EPOCH, Duration};
 
 use chrono::NaiveDateTime;
-use rusqlite::{NO_PARAMS, params, Connection, Result as SqlResult, Row};
+use rusqlite::{NO_PARAMS, params, Connection, Result as SqlResult};
 
 use crate::docs::{Doc, MovedDoc};
 
-pub fn setup_working_tables(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &mut Connection) -> SqlResult<usize> {
+pub fn setup_working_tables(conn: &mut Connection) -> SqlResult<usize> {
     conn.execute("CREATE TABLE working_entries (
     id  INTEGER PRIMARY KEY,
     hash TEXT NOT NULL,
@@ -22,7 +22,7 @@ pub fn setup_working_tables(latest: &NaiveDateTime, previous: &NaiveDateTime, co
 
 // Files which do not exist in revision and do not match any of the previous criteria?
 // Files that were renamed, moved, or had their content altered should be excluded
-pub fn missing_files(latest: &NaiveDateTime, previous: &NaiveDateTime,
+pub fn missing_files(previous: &NaiveDateTime,
                  conn: &Connection) -> Vec<Doc> {
     let missing_sql = "SELECT *
     FROM touched_entries EXCEPT
@@ -32,17 +32,16 @@ pub fn missing_files(latest: &NaiveDateTime, previous: &NaiveDateTime,
     WHERE w1.mod_date IS NULL AND w2.id = ?1";
 
     let mut stmt = conn.prepare(missing_sql).unwrap();
-    let missing = stmt.query_map(params![previous.timestamp()], |row| {
+    stmt.query_map(params![previous.timestamp()], |row| {
         Ok(Doc {
             hash: row.get_unwrap(1),
             name: row.get_unwrap(2),
             path: row.get_unwrap(3),
             //mod_date: NaiveDateTime::from_timestamp(row.get_unwrap::<usize, i64>(4), 0)
-            mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(4) as u64))
+            mod_date: UNIX_EPOCH + (Duration::from_millis(
+                row.get_unwrap::<usize, i64>(4) as u64))
         })
-    }).unwrap().map(|i| i.unwrap()).collect();
-
-    missing
+    }).unwrap().map(|i| i.unwrap()).collect()
 }
 
 // Files that exist in the latest revision but do not exist in the previous working items
@@ -54,7 +53,7 @@ pub fn added_files(latest: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
     WHERE w1.mod_date = ?1 AND w2.mod_date IS NULL";
 
     let mut stmt = conn.prepare(added_sql).unwrap();
-    let added = stmt.query_map(params![latest.timestamp()], |row| {
+    stmt.query_map(params![latest.timestamp()], |row| {
         Ok(Doc {
             hash: row.get_unwrap(0),
             name: row.get_unwrap(1),
@@ -62,9 +61,7 @@ pub fn added_files(latest: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
             mod_date: UNIX_EPOCH + (Duration::from_millis
                 (row.get_unwrap::<usize, i64>(3) as u64))
         })
-    }).unwrap().map(|i| i.unwrap()).collect();
-
-    added
+    }).unwrap().map(|i| i.unwrap()).collect()
 }
 
 // Same hash, different path
@@ -76,7 +73,7 @@ pub fn moved_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Conn
     WHERE w1.mod_date = ?1 AND w2.mod_date = ?2";
 
     let mut stmt = conn.prepare(moved_sql).unwrap();
-    let moved = stmt.query_map(params![latest.timestamp(), previous.timestamp()], |row| {
+    stmt.query_map(params![latest.timestamp(), previous.timestamp()], |row| {
         Ok(MovedDoc {
             doc: Doc {
                 hash: row.get_unwrap(0),
@@ -87,9 +84,7 @@ pub fn moved_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Conn
             },
             dest_path: row.get_unwrap(4)
         })
-    }).unwrap().map(|i| i.unwrap()).collect();
-
-    moved
+    }).unwrap().map(|i| i.unwrap()).collect()
 }
 
 pub fn remove_moved(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &mut Connection) -> SqlResult<usize> {
@@ -108,7 +103,6 @@ pub fn remove_moved(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &mut
         ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path != w2.path AND w1.name = w2.name
     WHERE w1.mod_date = ?1 AND w2.mod_date = ?2";
     conn.execute(worked_entries_sql, params![previous.timestamp(), latest.timestamp()])
-
 }
 
 // Same hash and path, different name
@@ -120,7 +114,8 @@ pub fn renamed_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Co
         )
     WHERE w1.mod_date = ?1 and w2.mod_date = ?2";
     let mut stmt = conn.prepare(renamed_sql).unwrap();
-    let renamed = stmt.query_map(params![latest.timestamp(), previous.timestamp()], |row| {
+
+    stmt.query_map(params![latest.timestamp(), previous.timestamp()], |row| {
         Ok(Doc {
             hash: row.get_unwrap(1),
             name: row.get_unwrap(2),
@@ -128,9 +123,7 @@ pub fn renamed_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Co
             //mod_date: NaiveDateTime::from_timestamp(row.get_unwrap::<usize, i64>(4), 0)
             mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(4) as u64))
         })
-    }).unwrap().map(|i| i.unwrap()).collect();
-
-    renamed
+    }).unwrap().map(|i| i.unwrap()).collect()
 }
 
 pub fn remove_renamed(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &mut Connection) -> SqlResult<usize>{
@@ -227,21 +220,19 @@ pub fn get_doclist_from_table(table_name: &str, conn: &mut Connection) -> Vec<Do
     stmt += table_name;
 
     let mut stmt = conn.prepare(&stmt).unwrap();
-    let working_entries = stmt
-    .query_map(NO_PARAMS, |row| {
+
+    stmt.query_map(NO_PARAMS, |row| {
         Ok(Doc {
             hash: row.get_unwrap(1),
             name: row.get_unwrap(2),
             path: row.get_unwrap(3),
             mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(4) as u64))
         })
-    }).unwrap().map(|i| i.unwrap()).collect();
-
-    working_entries
+    }).unwrap().map(|i| i.unwrap()).collect()
 }
 
 // Print entries on a DB table that looks like a dir entry
-fn _print_entry_like(table_name: &str, conn: &mut Connection) -> () {
+fn _print_entry_like(table_name: &str, conn: &mut Connection) {
     let mut stmt = String::from("SELECT * FROM ");
     stmt += table_name;
 
@@ -264,12 +255,12 @@ fn _print_entry_like(table_name: &str, conn: &mut Connection) -> () {
     println!("\n");
 }
 
-pub fn print_dir_entries(conn: &mut Connection) -> () {
+pub fn print_dir_entries(conn: &mut Connection) {
     const TABLE_NAME: &str = "dir_entries";
     _print_entry_like(TABLE_NAME, conn);
 }
 
-pub fn print_working_entries(conn: &mut Connection) -> () {
+pub fn print_working_entries(conn: &mut Connection) {
     const TABLE_NAME: &str = "working_entries";
     _print_entry_like(TABLE_NAME, conn);
 }

@@ -1,4 +1,5 @@
 use crate::docs::Doc;
+use std::error::Error;
 use std::io;
 use std::io::prelude::*;
 use std::fs::{File, OpenOptions};
@@ -10,7 +11,6 @@ use csv::{Position, Reader, ReaderBuilder, Writer, WriterBuilder};
 use sha1::{Digest, Sha1};
 
 use walkdir::{DirEntry, WalkDir};
-use std::borrow::BorrowMut;
 
 pub fn create_csv_writer(path: &Path, verbose: bool) -> csv::Result<Writer<File>> {
     let path = path.join(".dirdiff.csv");
@@ -39,7 +39,7 @@ pub fn create_csv_reader(path: &Path, verbose: bool) -> Result<Reader<File>, csv
 pub fn is_hidden(entry: &DirEntry) -> bool {
     entry.file_name()
         .to_str()
-        .map(|s| s.starts_with("."))
+        .map(|s| s.starts_with('.'))
         .unwrap_or(false)
 }
 
@@ -79,7 +79,7 @@ pub fn gen_dir_struct(path: &Path) -> io::Result<Vec<Doc>> {
                 hash: hex::encode(hash),
                 name: String::from(dir_entry.file_name().to_str().unwrap()),
                 path: String::from(path.parent().unwrap().to_str().unwrap()),
-                mod_date: mod_date
+                mod_date
             });
 
         } else {
@@ -90,7 +90,7 @@ pub fn gen_dir_struct(path: &Path) -> io::Result<Vec<Doc>> {
     Ok(dir_entries)
 }
 
-pub fn load_csv_entries(mut reader: Reader<File>, verbose: bool, debug: bool) -> Vec<Doc> {
+pub fn load_csv_entries(mut reader: Reader<File>, _verbose: bool, debug: bool) -> Vec<Doc> {
     // reader.into_deserialize().map(|e| { let record: Doc = e.expect("Cannot parse CSV record"); record }).collect::<Vec<Doc>>()
     let mut results = Vec::new();
     for record in reader.records() {
@@ -110,7 +110,7 @@ pub fn load_csv_entries(mut reader: Reader<File>, verbose: bool, debug: bool) ->
 }
 
 // Same as `load_csv_entries` but only loads the last revision
-pub fn load_csv_latest_entries(mut reader: Reader<File>, verbose:bool, debug: bool) -> Vec<Doc> {
+pub fn load_csv_latest_entries(mut reader: Reader<File>, verbose:bool, debug: bool) -> Result<Vec<Doc>, Box<dyn Error>> {
     let mut millis: Vec<SystemTime> = Vec::new();
     for item in reader.records() {
         let item = item.unwrap();
@@ -127,7 +127,7 @@ pub fn load_csv_latest_entries(mut reader: Reader<File>, verbose:bool, debug: bo
 
     let mut results = Vec::new();
 
-    reader.seek(Position::new());
+    reader.seek(Position::new())?;
 
     for record in reader.records() {
         let record = record.unwrap();
@@ -140,7 +140,7 @@ pub fn load_csv_latest_entries(mut reader: Reader<File>, verbose:bool, debug: bo
                 hash: record[0].to_string(),
                 name: record[1].to_string(),
                 path: record[2].to_string(),
-                mod_date: mod_date
+                mod_date
             };
 
             results.push(record);
@@ -151,6 +151,6 @@ pub fn load_csv_latest_entries(mut reader: Reader<File>, verbose:bool, debug: bo
 
     if debug { println!("Loaded {} CSV records", results.len()); }
 
-    results
+    Ok(results)
 }
 
