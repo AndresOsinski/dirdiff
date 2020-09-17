@@ -12,8 +12,19 @@ pub struct Doc {
     pub mod_date: SystemTime
 }
 
+pub struct MovedDoc {
+    pub doc: Doc,
+    pub dest_path: String
+}
+
 pub fn print_docs(docs: Vec<Doc>) -> () {
     for doc in docs {
         println!("{}, {}, {}", doc.name, doc.path, doc.hash);
+    }
+}
+
+pub fn print_moved_docs(moved_docs: Vec<MovedDoc>) -> () {
+    for doc in moved_docs {
+        println!("{}/{}, {}, {} -> {}", doc.doc.path, doc.doc.name, doc.doc.hash, doc.doc.path, doc.dest_path);
     }
 }

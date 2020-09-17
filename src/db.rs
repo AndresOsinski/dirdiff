@@ -3,7 +3,7 @@ use std::time::{UNIX_EPOCH, Duration, SystemTime};
 use chrono::NaiveDateTime;
 use rusqlite::{NO_PARAMS, params, Connection, Result as SqlResult, Row};
 
-use crate::docs::Doc;
+use crate::docs::{Doc, MovedDoc};
 
 pub fn setup_working_tables(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &mut Connection) -> SqlResult<usize> {
     conn.execute("CREATE TABLE working_entries (
@@ -68,8 +68,8 @@ pub fn added_files(latest: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
 }
 
 // Same hash, different path
-pub fn moved_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> Vec<Doc> {
-    let moved_sql = "SELECT w1.hash, w1.name, w1.path, w1.mod_date
+pub fn moved_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Connection) -> Vec<MovedDoc> {
+    let moved_sql = "SELECT w1.hash, w1.name, w1.path, w1.mod_date, w2.path
     FROM
         working_entries w1 INNER JOIN working_entries w2
         ON w1.mod_date != w2.mod_date AND w1.hash = w2.hash AND w1.path != w2.path AND w1.name = w2.name
@@ -77,12 +77,15 @@ pub fn moved_files(latest: &NaiveDateTime, previous: &NaiveDateTime, conn: &Conn
 
     let mut stmt = conn.prepare(moved_sql).unwrap();
     let moved = stmt.query_map(params![latest.timestamp(), previous.timestamp()], |row| {
-        Ok(Doc {
-            hash: row.get_unwrap(0),
-            name: row.get_unwrap(1),
-            path: row.get_unwrap(2),
-            //mod_date: NaiveDateTime::from_timestamp(row.get_unwrap::<usize, i64>(4), 0)
-            mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(3) as u64))
+        Ok(MovedDoc {
+            doc: Doc {
+                hash: row.get_unwrap(0),
+                name: row.get_unwrap(1),
+                path: row.get_unwrap(2),
+                //mod_date: NaiveDateTime::from_timestamp(row.get_unwrap::<usize, i64>(4), 0)
+                mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(3) as u64))
+            },
+            dest_path: row.get_unwrap(4)
         })
     }).unwrap().map(|i| i.unwrap()).collect();
 
@@ -219,6 +222,24 @@ pub fn revision_millis(conn: &Connection) -> Vec<i64> {
     }).unwrap().map(|e| e.unwrap()).collect()
 }
 
+pub fn get_doclist_from_table(table_name: &str, conn: &mut Connection) -> Vec<Doc> {
+    let mut stmt = String::from("SELECT * FROM ");
+    stmt += table_name;
+
+    let mut stmt = conn.prepare(&stmt).unwrap();
+    let working_entries = stmt
+    .query_map(NO_PARAMS, |row| {
+        Ok(Doc {
+            hash: row.get_unwrap(1),
+            name: row.get_unwrap(2),
+            path: row.get_unwrap(3),
+            mod_date: UNIX_EPOCH + (Duration::from_millis(row.get_unwrap::<usize, i64>(4) as u64))
+        })
+    }).unwrap().map(|i| i.unwrap()).collect();
+
+    working_entries
+}
+
 // Print entries on a DB table that looks like a dir entry
 fn _print_entry_like(table_name: &str, conn: &mut Connection) -> () {
     let mut stmt = String::from("SELECT * FROM ");
@@ -244,12 +265,12 @@ fn _print_entry_like(table_name: &str, conn: &mut Connection) -> () {
 }
 
 pub fn print_dir_entries(conn: &mut Connection) -> () {
-    const table_name: &str = "dir_entries";
-    _print_entry_like(table_name, conn);
+    const TABLE_NAME: &str = "dir_entries";
+    _print_entry_like(TABLE_NAME, conn);
 }
 
 pub fn print_working_entries(conn: &mut Connection) -> () {
-    const table_name: &str = "working_entries";
-    _print_entry_like(table_name, conn);
+    const TABLE_NAME: &str = "working_entries";
+    _print_entry_like(TABLE_NAME, conn);
 }
 

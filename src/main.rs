@@ -65,14 +65,17 @@ fn history(conn: &mut Connection, verbose: bool, debug: bool) -> () {
     if  debug{
         println!("Inserted {} records into working table", inserted);
 
-        println!("Initial working records:");
-        db::print_working_entries(conn);
+        if inserted > 0 {
+            let working_records = get_doclist_from_table("working_entries", conn);
+            println!("Initial working records:");
+            print_docs(working_records);
+        }
     }
 
     remove_unchanged_from_working_table(&prior_revision, conn)
         .expect("Could not remove unchanged directory entries from working table");
 
-    if  debug{
+    if  debug {
         println!("Remaining entries after removing unchanged:");
         db::print_working_entries(conn);
     }
@@ -81,18 +84,26 @@ fn history(conn: &mut Connection, verbose: bool, debug: bool) -> () {
     remove_renamed(&latest_revision, &prior_revision, conn)
         .expect("Could not remove renamed entries from working table");
 
-    println!("Renamed files:");
-    print_docs(renamed);
+    if renamed.len() > 0 {
+        println!("Renamed files:");
+        print_docs(renamed);
+    } else {
+        println!("No renamed filed");
+    }
 
-    if debug{
+    if debug {
         println!("Remaining after removing renamed:");
         db::print_working_entries(conn);
     }
 
     let moved = moved_files(&latest_revision, &prior_revision, conn);
 
-    println!("Moved files:");
-    print_docs(moved);
+    if moved.len() > 0 {
+        println!("Moved files:");
+        print_moved_docs(moved);
+    } else {
+        println!("No moved files");
+    }
 
     remove_moved(&latest_revision, &prior_revision, conn);
 
@@ -103,13 +114,21 @@ fn history(conn: &mut Connection, verbose: bool, debug: bool) -> () {
 
     let missing = missing_files(&latest_revision, &prior_revision, conn);
 
-    println!("Missing files:");
-    print_docs(missing);
+    if missing.len() > 0 {
+        println!("Missing files:");
+        print_docs(missing);
+    } else {
+        println!("No missing files");
+    }
 
     let added = added_files(&latest_revision, conn);
 
-    println!("Added files:");
-    print_docs(added);
+    if added.len() > 0 {
+        println!("Added files:");
+        print_docs(added);
+    } else {
+        println!("No added files");
+    }
 }
 
 // Compare the latest revision of two different local directories
@@ -206,7 +225,6 @@ fn main() -> Result<(), Box<dyn error::Error>> {
 
     let verbose = args.is_present("v");
     let debug = args.is_present("d");
-    println!("Debug: {}", debug);
 
     if let Some(record) = args.subcommand_matches(RECORD) {
         let root = Path::new(record.value_of_os("directory").unwrap());
